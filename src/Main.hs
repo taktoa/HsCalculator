@@ -40,8 +40,6 @@ opParse = foldl1 (<|>) $ zipWith genOpP ["+", "*", "/", "sqrt"] [Add, Mul, Div, 
           where
             genOpP s a = string s >> return a
 
---opParse = addP <|> mulP <|> divP <|> sqrtP
-
 exprParse :: Parser Expr
 exprParse = do
   char '('
