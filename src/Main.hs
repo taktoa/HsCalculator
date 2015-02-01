@@ -54,6 +54,7 @@ exprParse = do
   char '('
   op <- opParse
   args <- many (space >> (integerParse <|> exprParse))
+  char ')'
   return (Function op args)
 
 repBin :: Expr -> Expr
@@ -68,19 +69,20 @@ repBin _                      = error "Parse error"
 
 evaluate :: Expr -> Double
 evaluate f@(Function _ _) = evaluate $ repBin f
-evaluate (Num a) = fromIntegral a
+evaluate (Num a)          = fromIntegral a
 evaluate (BinOp Add a b)  = (evaluate a) + (evaluate b)
 evaluate (BinOp Mul a b)  = (evaluate a) * (evaluate b)
 evaluate (BinOp Div a b)  = (evaluate a) / (evaluate b)
 evaluate (UnaryOp Sqrt a) = sqrt (evaluate a)
 
-exampleInput :: String
-exampleInput = "example.hc"
+evalParse :: String -> String
+evalParse x = (either show (show . evaluate)) $ parse exprParse "stdin" $ head $ lines x
 
 main :: IO ()
 main = do
-  input <- readFile exampleInput
-  let parse1 = map (parse exprParse "") (lines input)
-  print parse1
-  print (map (either show (show . evaluate)) parse1)
+  let loop = do
+        r <- getLine
+        putStrLn (evalParse r)
+        loop
+  loop
   putStrLn "Hello World!"
