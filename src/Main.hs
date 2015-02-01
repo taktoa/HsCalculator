@@ -16,6 +16,7 @@
 
 module Main where
 
+import           System.IO
 import           Text.Parsec
 import qualified Text.Parsec.Char   as Pcr
 import qualified Text.Parsec.Expr   as Ex
@@ -34,26 +35,18 @@ integerParse = do
   c <- many Pcr.digit
   return $ Num (read c :: Int)
 
-addP :: Parser Op
-addP = char '+' >> return Add
-
-mulP :: Parser Op
-mulP = char '*' >> return Mul
-
-divP :: Parser Op
-divP = char '/' >> return Div
-
-sqrtP :: Parser Op
-sqrtP = string "sqrt" >> return Sqrt
-
 opParse :: Parser Op
-opParse = addP <|> mulP <|> divP <|> sqrtP
+opParse = foldl1 (<|>) $ zipWith genOpP ["+", "*", "/", "sqrt"] [Add, Mul, Div, Sqrt]
+          where
+            genOpP s a = string s >> return a
+
+--opParse = addP <|> mulP <|> divP <|> sqrtP
 
 exprParse :: Parser Expr
 exprParse = do
   char '('
   op <- opParse
-  args <- many (space >> (integerParse <|> exprParse))
+  args <- many (space >> (exprParse <|> integerParse))
   char ')'
   return (Function op args)
 
@@ -76,13 +69,17 @@ evaluate (BinOp Div a b)  = (evaluate a) / (evaluate b)
 evaluate (UnaryOp Sqrt a) = sqrt (evaluate a)
 
 evalParse :: String -> String
-evalParse x = (either show (show . evaluate)) $ parse exprParse "stdin" $ head $ lines x
+evalParse = (either show (show . evaluate)) . parse exprParse "stdin" . head . lines
 
 main :: IO ()
 main = do
   let loop = do
+        putStr "==> "
+        hFlush stdout
         r <- getLine
-        putStrLn (evalParse r)
-        loop
+        if invalid r then return () else putStrLn (evalParse r) >> loop
   loop
-  putStrLn "Hello World!"
+  putStrLn "Goodbye!"
+  where
+    invalid x = x `elem` invalidList
+    invalidList = ["", "exit", "quit", ":q"]
