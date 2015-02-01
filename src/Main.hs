@@ -17,20 +17,54 @@
 module Main where
 
 import           Text.Parsec
+import qualified Text.Parsec.Char   as Pcr
 import qualified Text.Parsec.Expr   as Ex
 import           Text.Parsec.String (Parser)
-import qualified Text.Parsec.Token  as Tok
 
-data Op = Add | Multiply | Divide deriving (Eq, Show)
+data Op = Add | Mul | Div | Sqrt deriving (Eq, Show)
 
 data Expr = Num Int
+          | UnaryOp Op Expr
           | BinOp Op Expr Expr
           | Function Op [Expr]
             deriving (Eq, Show)
 
---funcParse :: Parser Expr
---funcParse = do
+integerParse :: Parser Expr
+integerParse = do
+  c <- many Pcr.digit
+  return $ Num (read c :: Int)
 
+addP :: Parser Op
+addP = char '+' >> return Add
+
+mulP :: Parser Op
+mulP = char '*' >> return Mul
+
+divP :: Parser Op
+divP = char '/' >> return Div
+
+sqrtP :: Parser Op
+sqrtP = string "sqrt" >> return Sqrt
+
+opParse :: Parser Op
+opParse = addP <|> mulP <|> divP <|> sqrtP
+
+exprParse :: Parser Expr
+exprParse = do
+  char '('
+  op <- opParse
+  args <- many (space >> (integerParse <|> exprParse))
+  return (Function op args)
+
+repBin :: Expr -> Expr
+repBin (Num a) = Num a
+repBin (Function Add [x, y])  = (BinOp Add (repBin x) (repBin y))
+repBin (Function Add (x:y:r)) = (BinOp Add (repBin x) (repBin (Function Add (y:r))))
+repBin (Function Mul [x, y])  = (BinOp Add (repBin x) (repBin y))
+repBin (Function Mul (x:y:r)) = (BinOp Mul (repBin x) (repBin (Function Mul (y:r))))
+repBin (Function Div [x, y])  = (BinOp Div (repBin x) (repBin y))
+repBin (Function Sqrt [x])    = (UnaryOp Sqrt (repBin x))
+repBin _                      = error "Parse error"
 
 exampleInput :: String
 exampleInput = "example.hc"
@@ -38,5 +72,7 @@ exampleInput = "example.hc"
 main :: IO ()
 main = do
   input <- readFile exampleInput
-  print (lines input)
+  let parse1 = map (parse exprParse "") (lines input)
+  print parse1
+  print (map (either show (show . repBin)) parse1)
   putStrLn "Hello World!"
