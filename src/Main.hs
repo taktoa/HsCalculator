@@ -16,5 +16,27 @@
 
 module Main where
 
+import           Text.Parsec
+import qualified Text.Parsec.Expr   as Ex
+import           Text.Parsec.String (Parser)
+import qualified Text.Parsec.Token  as Tok
+
+data Op = Add | Multiply | Divide deriving (Eq, Show)
+
+data Expr = Num Int
+          | BinOp Op Expr Expr
+          | Function Op [Expr]
+            deriving (Eq, Show)
+
+--funcParse :: Parser Expr
+--funcParse = do
+
+
+exampleInput :: String
+exampleInput = "example.hc"
+
 main :: IO ()
-main = putStrLn "Hello World!"
+main = do
+  input <- readFile exampleInput
+  print (lines input)
+  putStrLn "Hello World!"
