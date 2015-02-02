@@ -1,4 +1,4 @@
--- main.rkt
+-- Main.hs
 -- Copyright 2015 Remy E. Goldschmidt <taktoa@gmail.com>
 -- This file is part of HsCalculator.
 --    HsCalculator is free software: you can redistribute it and/or modify
@@ -16,68 +16,118 @@
 
 module Main where
 
+import           Control.Monad    (unless)
+import           Data.Text        (Text, pack, unpack)
 import           System.IO
 import           Text.Parsec
-import qualified Text.Parsec.Char   as Pcr
-import qualified Text.Parsec.Expr   as Ex
-import           Text.Parsec.String (Parser)
+import           Text.Parsec.Text (Parser)
 
-data Op = Add | Mul | Div | Sqrt deriving (Eq, Show)
+data Func = Add
+          | Mul
+          | Lam
+          | App
+          deriving (Eq, Show)
 
-data Expr = Num Int
-          | UnaryOp Op Expr
-          | BinOp Op Expr Expr
-          | Function Op [Expr]
-            deriving (Eq, Show)
+data Expr = INum Int
+          | Boolean Bool
+          | Var Text
+          | Branch Func [Expr]
+          deriving (Eq, Show)
 
-integerParse :: Parser Expr
-integerParse = do
-  c <- many Pcr.digit
-  return $ Num (read c :: Int)
+intParse :: Parser Expr
+intParse = many digit >>= (\c -> return $ INum (read c :: Int))
 
-opParse :: Parser Op
-opParse = foldl1 (<|>) $ zipWith genOpP ["+", "*", "/", "sqrt"] [Add, Mul, Div, Sqrt]
+boolParse :: Parser Expr
+boolParse = tP <|> fP
+            where
+              tP = string "true"  >> return (Boolean True)
+              fP = string "false" >> return (Boolean False)
+
+dataParse :: Parser Expr
+dataParse = foldl1 (<|>) [intParse, boolParse]
+
+operators :: [(String, Func)]
+operators = [("+",      Add),
+             ("*",      Mul),
+             ("apply",  App),
+             ("lambda", Lam)]
+
+varParse :: Parser Expr
+varParse = many1 letter >>= (return . Var . pack)
+
+funcParse :: Parser Func
+funcParse = foldl1 (<|>) $ map genOpP operators
           where
-            genOpP s a = string s >> return a
+            genOpP (s, a) = string s >> return a
 
 exprParse :: Parser Expr
 exprParse = do
   char '('
-  op <- opParse
-  args <- many (space >> (exprParse <|> integerParse))
+  func <- funcParse
+  whitespace
+  args <- argParse `sepBy` whitespace
   char ')'
-  return (Function op args)
+  return (Branch func args)
+  where
+    argParse = exprParse <|> varParse <|> dataParse
+    whitespace = many1 space
 
-repBin :: Expr -> Expr
-repBin (Num a) = Num a
-repBin (Function Add [x, y])  = (BinOp Add (repBin x) (repBin y))
-repBin (Function Add (x:y:r)) = (BinOp Add (repBin x) (repBin (Function Add (y:r))))
-repBin (Function Mul [x, y])  = (BinOp Add (repBin x) (repBin y))
-repBin (Function Mul (x:y:r)) = (BinOp Mul (repBin x) (repBin (Function Mul (y:r))))
-repBin (Function Div [x, y])  = (BinOp Div (repBin x) (repBin y))
-repBin (Function Sqrt [x])    = (UnaryOp Sqrt (repBin x))
-repBin _                      = error "Parse error"
+checkBound' :: [Text] -> Expr -> Bool
+checkBound' bnd (Var v) = v `elem` bnd
+checkBound' bnd (Branch App [Branch Lam [Var v, a], _]) = checkBound' (v:bnd) a
+checkBound' bnd (Branch _ as) = all (checkBound' bnd) as
+checkBound' _   _ = True
 
-evaluate :: Expr -> Double
-evaluate f@(Function _ _) = evaluate $ repBin f
-evaluate (Num a)          = fromIntegral a
-evaluate (BinOp Add a b)  = (evaluate a) + (evaluate b)
-evaluate (BinOp Mul a b)  = (evaluate a) * (evaluate b)
-evaluate (BinOp Div a b)  = (evaluate a) / (evaluate b)
-evaluate (UnaryOp Sqrt a) = sqrt (evaluate a)
+checkBound :: Expr -> Bool
+checkBound = checkBound' []
 
-evalParse :: String -> String
-evalParse = (either show (show . evaluate)) . parse exprParse "stdin" . head . lines
+-- checkLam :: Expr -> Bool
+-- checkLam (Branch Lam [(Var v), a]) = True && checkBound
+-- checkLam _ = False
+
+-- checkApp :: Expr -> Bool
+-- checkApp (Branch App [])
+
+-- reduceLam :: Expr -> ([Text], Expr)
+
+-- reduceApp :: Expr -> Expr
+-- reduceApp (Branch App ((Branch Lam xs):a@(_:_))) = Branch App ((Branch Lam xs):a)
+-- reduceApp _ = error "wrong expr"
+-- repBin :: Expr -> Expr
+-- repBin (Num a) = Num a
+-- repBin (Function Add [x, y])  = BinOp Add (repBin x) (repBin y)
+-- repBin (Function Add (x:y:r)) = BinOp Add (repBin x) (repBin (Function Add (y:r)))
+-- repBin (Function Mul [x, y])  = BinOp Add (repBin x) (repBin y)
+-- repBin (Function Mul (x:y:r)) = BinOp Mul (repBin x) (repBin (Function Mul (y:r)))
+-- repBin (Function Div [x, y])  = BinOp Div (repBin x) (repBin y)
+-- repBin (Function Sub [x, y])  = BinOp Sub (repBin x) (repBin y)
+-- repBin (Function Sqrt [x])    = UnaryOp Sqrt (repBin x)
+-- repBin _                      = error "Parse error"
+
+-- evaluate :: Expr -> Double
+-- evaluate f@(Function _ _) = evaluate $ repBin f
+-- evaluate (Num a)          = fromIntegral a
+-- evaluate (BinOp Add a b)  = evaluate a + evaluate b
+-- evaluate (BinOp Sub a b)  = evaluate a - evaluate b
+-- evaluate (BinOp Mul a b)  = evaluate a * evaluate b
+-- evaluate (BinOp Div a b)  = evaluate a / evaluate b
+-- evaluate (UnaryOp Sqrt a) = sqrt (evaluate a)
+
+-- evalParse :: String -> String
+-- evalParse = either show (show . evaluate) . parse exprParse "stdin" . head . map pack . lines
+
+-- main :: IO ()
+-- main = do
+--   let loop = do
+--         putStr "==> "
+--         hFlush stdout
+--         r <- getLine
+--         unless (invalid r) (putStrLn (evalParse r) >> loop)
+--   loop
+--   putStrLn "Goodbye!"
+--   where
+--     invalid x = x `elem` invalidList
+--     invalidList = ["", "exit", "quit", ":q"]
 
 main :: IO ()
-main = do
-  let loop = do
-        putStr "==> "
-        hFlush stdout
-        r <- getLine
-        if invalid r then return () else putStrLn (evalParse r) >> loop
-  loop
-  putStrLn "Goodbye!"
-  where
-    invalid x = x `elem` invalidList
-    invalidList = ["", "exit", "quit", ":q"]
+main = putStrLn "test"
