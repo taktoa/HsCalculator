@@ -17,34 +17,41 @@
 module Main where
 
 import           Control.Monad    (unless)
+import           Data.Map.Strict  (Map)
+import qualified Data.Map.Strict  as M
 import           Data.Text        (Text, pack, unpack)
 import           System.IO
 import           Text.Parsec
 import           Text.Parsec.Text (Parser)
 
-data Func = Add
-          | Mul
-          | Lam
-          | App
-          deriving (Eq, Show)
+type VarName = Text
 
-data Expr = INum Int
-          | Boolean Bool
-          | Var Text
-          | Branch Func [Expr]
-          deriving (Eq, Show)
+data Func  = Add
+           | Mul
+           | Lam
+           | App
+           deriving (Eq, Show)
 
-intParse :: Parser Expr
+data Value = INum Int
+           | Boolean Bool
+           deriving (Eq, Show)
+
+data Expr  = Val Value
+           | Var VarName
+           | Branch Func [Expr]
+           deriving (Eq, Show)
+
+intParse :: Parser Value
 intParse = many digit >>= (\c -> return $ INum (read c :: Int))
 
-boolParse :: Parser Expr
+boolParse :: Parser Value
 boolParse = tP <|> fP
             where
               tP = string "true"  >> return (Boolean True)
               fP = string "false" >> return (Boolean False)
 
 dataParse :: Parser Expr
-dataParse = foldl1 (<|>) [intParse, boolParse]
+dataParse = Val `fmap` foldl1 (<|>) [intParse, boolParse]
 
 operators :: [(String, Func)]
 operators = [("+",      Add),
@@ -53,7 +60,7 @@ operators = [("+",      Add),
              ("lambda", Lam)]
 
 varParse :: Parser Expr
-varParse = many1 letter >>= (return . Var . pack)
+varParse = (Var . pack) `fmap` many1 letter
 
 funcParse :: Parser Func
 funcParse = foldl1 (<|>) $ map genOpP operators
@@ -72,62 +79,88 @@ exprParse = do
     argParse = exprParse <|> varParse <|> dataParse
     whitespace = many1 space
 
-checkBound' :: [Text] -> Expr -> Bool
-checkBound' bnd (Var v) = v `elem` bnd
-checkBound' bnd (Branch App [Branch Lam [Var v, a], _]) = checkBound' (v:bnd) a
-checkBound' bnd (Branch _ as) = all (checkBound' bnd) as
-checkBound' _   _ = True
+checkValid' :: [VarName] -> Expr -> Bool
+checkValid' _   (Val _) = True
+checkValid' bnd (Var v) = v `elem` bnd
+checkValid' bnd (Branch App as@[_, _]) = all (checkValid' bnd) as
+checkValid' _   (Branch App _) = False
+checkValid' bnd (Branch Lam [Var v, a]) = checkValid' (v:bnd) a
+checkValid' _   (Branch Lam _) = False
+checkValid' bnd (Branch _ as) = all (checkValid' bnd) as
 
-checkBound :: Expr -> Bool
-checkBound = checkBound' []
+checkValid :: Expr -> Bool
+checkValid = checkValid' []
 
--- checkLam :: Expr -> Bool
--- checkLam (Branch Lam [(Var v), a]) = True && checkBound
--- checkLam _ = False
+data EvalError = TypeError String
+               | UnboundVarError String
+               deriving (Eq, Show)
 
--- checkApp :: Expr -> Bool
--- checkApp (Branch App [])
+data VType = BT | IT deriving (Eq, Show)
 
--- reduceLam :: Expr -> ([Text], Expr)
+type EValue = Either [EvalError] Value
 
--- reduceApp :: Expr -> Expr
--- reduceApp (Branch App ((Branch Lam xs):a@(_:_))) = Branch App ((Branch Lam xs):a)
--- reduceApp _ = error "wrong expr"
--- repBin :: Expr -> Expr
--- repBin (Num a) = Num a
--- repBin (Function Add [x, y])  = BinOp Add (repBin x) (repBin y)
--- repBin (Function Add (x:y:r)) = BinOp Add (repBin x) (repBin (Function Add (y:r)))
--- repBin (Function Mul [x, y])  = BinOp Add (repBin x) (repBin y)
--- repBin (Function Mul (x:y:r)) = BinOp Mul (repBin x) (repBin (Function Mul (y:r)))
--- repBin (Function Div [x, y])  = BinOp Div (repBin x) (repBin y)
--- repBin (Function Sub [x, y])  = BinOp Sub (repBin x) (repBin y)
--- repBin (Function Sqrt [x])    = UnaryOp Sqrt (repBin x)
--- repBin _                      = error "Parse error"
+type Context = Map VarName (Value, VType)
 
--- evaluate :: Expr -> Double
--- evaluate f@(Function _ _) = evaluate $ repBin f
--- evaluate (Num a)          = fromIntegral a
--- evaluate (BinOp Add a b)  = evaluate a + evaluate b
--- evaluate (BinOp Sub a b)  = evaluate a - evaluate b
--- evaluate (BinOp Mul a b)  = evaluate a * evaluate b
--- evaluate (BinOp Div a b)  = evaluate a / evaluate b
--- evaluate (UnaryOp Sqrt a) = sqrt (evaluate a)
+getType :: Value -> VType
+getType (Boolean _) = BT
+getType (INum _) = IT
 
--- evalParse :: String -> String
--- evalParse = either show (show . evaluate) . parse exprParse "stdin" . head . map pack . lines
+unboundError :: String -> EvalError
+unboundError vn = UnboundVarError ("Variable " ++ vn ++ " is not bound")
 
--- main :: IO ()
--- main = do
---   let loop = do
---         putStr "==> "
---         hFlush stdout
---         r <- getLine
---         unless (invalid r) (putStrLn (evalParse r) >> loop)
---   loop
---   putStrLn "Goodbye!"
---   where
---     invalid x = x `elem` invalidList
---     invalidList = ["", "exit", "quit", ":q"]
+typeError :: String -> String -> String -> EvalError
+typeError f a b = TypeError ("Type error: (" ++ f ++ " " ++ a ++ " " ++ b ++ ")")
+
+addVals :: EValue -> EValue -> EValue
+addVals (Right (INum v1)) (Right (INum v2)) = Right (INum (v1 + v2))
+addVals (Left e1)         (Left e2)         = Left (e1 ++ e2)
+addVals (Left e1)         _                 = Left e1
+addVals _                 (Left e2)         = Left e2
+addVals x                 y                 = Left [typeError "+" (show x) (show y)]
+
+mulVals :: EValue -> EValue -> EValue
+mulVals (Right (INum 0))  _                 = Right (INum 0)
+mulVals _                 (Right (INum 0))  = Right (INum 0)
+mulVals (Right (INum v1)) (Right (INum v2)) = Right (INum (v1 * v2))
+mulVals (Left e1)         (Left e2)         = Left (e1 ++ e2)
+mulVals (Left e1)         _                 = Left e1
+mulVals _                 (Left e2)         = Left e2
+mulVals x                 y                 = Left [typeError "*" (show x) (show y)]
+
+evaluate' :: Context -> Expr -> EValue
+evaluate' _   (Val a)         = Right a
+evaluate' ctx (Var a)         = maybe (Left [unboundError $ unpack a]) (Right . fst) $ M.lookup a ctx
+evaluate' _   (Branch Add []) = Right (INum 0)
+evaluate' ctx (Branch Add xs) = foldl1 addVals $ map (evaluate' ctx) xs
+evaluate' _   (Branch Mul []) = Right (INum 1)
+evaluate' ctx (Branch Mul xs) = foldl1 mulVals $ map (evaluate' ctx) xs
+evaluate' ctx (Branch App [Branch Lam [Var v, e], Val b])
+                              = evaluate' (M.insert v (b, getType b) ctx) e
+evaluate' _ _                 = error "undefined behavior"
+
+evaluate :: Expr -> EValue
+evaluate = evaluate' M.empty
+
+interpreter' :: Text -> Text
+interpreter' x = case parse exprParse "parser" x of
+  Left err -> pack $ show err
+  Right p  -> if checkValid p then pack $ render $ evaluate p else "Syntax error"
+  where
+    render (Left xs) = foldl1 (\a b -> a ++ "\n" ++ b) $ map show xs
+    render (Right a) = show a
+
+interpreterS :: String -> String
+interpreterS = unpack . interpreter' . pack
 
 main :: IO ()
-main = putStrLn "test"
+main = do
+  let loop = do
+        putStr "==> "
+        hFlush stdout
+        r <- getLine
+        unless (invalid r) (putStrLn (interpreterS r) >> loop)
+  loop
+  putStrLn "Goodbye!"
+  where
+    invalid x = x `elem` invalidList
+    invalidList = ["", "exit", "quit", ":q"]
