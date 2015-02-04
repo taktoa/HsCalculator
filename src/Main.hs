@@ -46,28 +46,29 @@ data Expr = ELam MName Expr
 munge :: String -> MName
 munge = MName . hash
 
-step' :: (Context, Expr) -> (Context, Expr)
-step' (c, EMul (EInt a) (EInt b)) = (c, EInt (a * b))
-step' (c, EMul a b) = step' (c, EMul (snd $ step' (c, a)) (snd $ step' (c, b)))
-step' (c, EAdd (EInt a) (EInt b)) = (c, EInt (a + b))
-step' (c, EApp (ELam n r) b) = step' (M.insert n b c, r)
-step' (c, EApp (EMu n r) b)  = step' (M.insert n (EMu n r) c, b)
-step' (c, ERef n) = case M.lookup n c of
-                     Just a  -> (c, a)
-                     Nothing -> error $ "Referenced undefined variable: " ++ show n
-step' (c, EApp f b) = (c `M.union` c', EApp f' b)
-                      where
-                        (c', f') = step' (c, f)
-step' (c, e)      = (c, e)
+step :: (Context, Expr) -> (Context, Expr)
+step (c, ERef n)                 = case M.lookup n c of
+                                     Just a  -> (c, a)
+                                     Nothing -> error $ "Referenced undefined variable: " ++ show n
+step (c, EMul (EInt a) (EInt b)) = (c, EInt (a * b))
+step (c, EAdd (EInt a) (EInt b)) = (c, EInt (a + b))
+step (c, EMul a b)               = step (c, EMul (snd $ step (c, a)) (snd $ step (c, b)))
+step (c, EAdd a b)               = step (c, EAdd (snd $ step (c, a)) (snd $ step (c, b)))
+step (c, EApp (ELam n r) b)      = step (M.insert n b c, r)
+step (c, EApp (EMu n r) b)       = step (M.insert n (EMu n r) c, b)
+step (c, EApp f b)               = (c `M.union` c', EApp f' b) where (c', f')  = step (c, f)
+step (c, e)                      = (c, e)
 
-stepper :: (Context, Expr) -> (Context, Expr)
-stepper (c, e) = if (c, e) == s then (c, e) else stepper s
+eval' :: (Context, Expr) -> (Context, Expr)
+eval' i
+  | i == s      = i
+  | otherwise   = eval' s
   where
-    s = step' (c, e)
+    s = step i
 
-evaluate :: Expr -> Int
-evaluate (EInt i) = i
-evaluate e        = evaluate $ snd $ stepper (M.empty, e)
+eval :: Expr -> Int
+eval (EInt i) = i
+eval e        = eval $ snd $ eval' (M.empty, e)
 
 intParse :: Parser Expr
 intParse = many digit >>= (\c -> return $ EInt (read c :: Int))
@@ -102,17 +103,17 @@ exprParse = do
     whitespace = many1 space
 
 toExpr :: PFunc -> [Expr] -> Expr
-toExpr PAdd [x]    = x
-toExpr PAdd (x:xs) = EAdd x (toExpr PAdd xs)
-toExpr PMul [x]    = x
-toExpr PMul (x:xs) = EMul x (toExpr PMul xs)
+toExpr PAdd [x]         = x
+toExpr PAdd (x:xs)      = EAdd x (toExpr PAdd xs)
+toExpr PMul [x]         = x
+toExpr PMul (x:xs)      = EMul x (toExpr PMul xs)
 toExpr PLam [ERef n, r] = ELam n r
 toExpr PMu  [ERef n, r] = EMu n r
-toExpr PApp [f, a] = EApp f a
-toExpr PApp (f:a:as) = toExpr PApp $ EApp f a : as
+toExpr PApp [f, a]      = EApp f a
+toExpr PApp (f:a:as)    = toExpr PApp $ EApp f a : as
 
 testEval :: String -> Either ParseError Int
-testEval = fmap evaluate . parse exprParse "stdin" . pack
+testEval = fmap eval . parse exprParse "stdin" . pack
 
 main :: IO ()
 main = print $ testEval "(app (lam x (lam y (* y y x))) 3 4)"
