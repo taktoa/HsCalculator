@@ -32,41 +32,47 @@ newtype MName = MName Int
 
 type Name = String
 
-type Context a = Map MName (Expr a)
+type Context = Map MName Expr
 
-data Expr a where
-  ELet  :: MName    -> Expr a   -> Expr a   -> Expr a
-  ERef  :: MName    -> Expr a
-  EInt  :: Int      -> Expr Int
-  EAdd  :: Expr Int -> Expr Int -> Expr Int
-  EMul  :: Expr Int -> Expr Int -> Expr Int
+data Expr = ELam MName Expr
+          | EMu  MName Expr
+          | EApp Expr  Expr
+          | ERef MName
+          | EInt Int
+          | EAdd Expr  Expr
+          | EMul Expr  Expr
+            deriving (Eq, Show, Read)
 
 munge :: String -> MName
 munge = MName . hash
 
-eval' :: Context a -> Expr a -> a
-eval' _   (EInt i)       = i
-eval' ctx (ELet n v r)   = eval' (M.insert n v ctx) r
-eval' ctx (ERef n)       = case M.lookup n ctx of
-                          Just a  -> eval' ctx a
-                          Nothing -> error $ "Referenced undefined variable: " ++ show n
-eval' ctx (EAdd a b)     = eval' ctx a + eval' ctx b
-eval' ctx (EMul a b)     = eval' ctx a * eval' ctx b
+eval' :: Context -> Expr -> Int
+eval' _ (EInt i)            = i
+eval' c (EAdd a b)          = eval' c a + eval' c b
+eval' c (EMul a b)          = eval' c a * eval' c b
+eval' c (EApp (ELam n r) b) = eval' (M.insert n b c) r
+eval' c (EApp (EMu n r) b)  = eval' (M.insert n (EMu n r) c) b
+eval' c (ERef n)            = case M.lookup n c of
+                                    Just a  -> eval' c a
+                                    Nothing -> error $ "Referenced undefined variable: " ++ show n
+eval' _ b                   = error $ show b
 
-eval :: Expr a -> a
+eval :: Expr -> Int
 eval = eval' M.empty
 
-intParse :: Parser (Expr Int)
+intParse :: Parser Expr
 intParse = many digit >>= (\c -> return $ EInt (read c :: Int))
 
-data PFunc = PAdd | PMul | PLet
+data PFunc = PAdd | PMul | PLam | PMu | PApp
 
 operators :: [(String, PFunc)]
 operators = [("+",      PAdd),
              ("*",      PMul),
-             ("let",    PLet)]
+             ("app",    PApp),
+             ("mu",     PMu),
+             ("lam",    PLam)]
 
-varParse :: Parser (Expr Int)
+varParse :: Parser Expr
 varParse = (ERef . munge) `fmap` many1 letter
 
 funcParse :: Parser PFunc
@@ -74,7 +80,7 @@ funcParse = foldl1 (<|>) $ map genOpP operators
           where
             genOpP (s, a) = string s >> return a
 
-exprParse :: Parser (Expr Int)
+exprParse :: Parser Expr
 exprParse = do
   char '('
   func <- funcParse
@@ -86,18 +92,21 @@ exprParse = do
     argParse = exprParse <|> varParse <|> intParse
     whitespace = many1 space
 
-toExpr :: PFunc -> [Expr Int] -> Expr Int
+toExpr :: PFunc -> [Expr] -> Expr
 toExpr PAdd [x]    = x
 toExpr PAdd (x:xs) = EAdd x (toExpr PAdd xs)
 toExpr PMul [x]    = x
 toExpr PMul (x:xs) = EMul x (toExpr PMul xs)
-toExpr PLet [ERef n, v, r] = ELet n v r
+toExpr PLam [ERef n, r] = ELam n r
+toExpr PMu  [ERef n, r] = EMu n r
+toExpr PApp [f, a] = EApp f a
+toExpr PApp (f:a:as) = toExpr PApp $ EApp f a : as
 
 testEval :: String -> Either ParseError Int
 testEval = fmap eval . parse exprParse "stdin" . pack
 
 main :: IO ()
-main = print $ testEval "(let x 5 (let y 3 (* y y x)))"
+main = print $ testEval "(app (lam x (lam y (* y y x))) 3 4)"
 
 -- checkValid' :: [VarName] -> Expr -> Bool
 -- checkValid' _   (Val _) = True
