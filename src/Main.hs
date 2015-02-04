@@ -1,7 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs            #-}
-{-# LANGUAGE KindSignatures   #-}
-{-# LANGUAGE TypeOperators    #-}
 -- Main.hs
 -- Copyright 2015 Remy E. Goldschmidt <taktoa@gmail.com>
 -- This file is part of HsCalculator.
@@ -20,13 +16,12 @@
 
 module Main where
 
--- import           Control.Applicative ((*>), (<*>))
--- import           Data.Functor        ((<$), (<$>))
+import           Control.Monad    (unless)
 import           Data.Hashable    (hash)
 import           Data.Map.Strict  (Map, union)
 import qualified Data.Map.Strict  as M
---import           Data.Ratio (Rational)
 import           Data.Text        (pack)
+import           System.IO        (hFlush, stdout)
 import           Text.Parsec
 import           Text.Parsec.Text (Parser)
 
@@ -63,7 +58,7 @@ step (c, EMul (ERat a) (ERat b)) = (c, ERat (a * b))
 step (c, EMul a b)               = step (c, EMul (snd $ step (c, a)) (snd $ step (c, b)))
 step (c, EAdd a b)               = step (c, EAdd (snd $ step (c, a)) (snd $ step (c, b)))
 step (c, EApp (ELam n r) b)      = step (M.insert n b c, r)
-step (c, EApp (EMu n r) b)       = step (M.insert n (EMu n r) c, r)
+step (c, EApp (EMu n r) b)       = step (M.insert n (EMu n r) c, EApp r b)
 step (c, EApp f b)               = (c `union` c', EApp f' b) where (c', f')  = step (c, f)
 step (c, e)                      = (c, e)
 
@@ -143,17 +138,14 @@ testEval :: String -> Either ParseError Rational
 testEval = fmap eval . parse exprParse "stdin" . pack
 
 main :: IO ()
-main = print $ testEval "(app (lam x (lam y (* y y x))) 3 4)"
-
--- main :: IO ()
--- main = do
---   let loop = do
---         putStr "==> "
---         hFlush stdout
---         r <- getLine
---         unless (invalid r) (putStrLn (interpreterS r) >> loop)
---   loop
---   putStrLn "Goodbye!"
---   where
---     invalid x = x `elem` invalidList
---     invalidList = ["", "exit", "quit", ":q"]
+main = do
+  let loop = do
+        putStr "==> "
+        hFlush stdout
+        r <- getLine
+        unless (invalid r) (print (testEval r) >> loop)
+  loop
+  putStrLn "Goodbye!"
+  where
+    invalid x = x `elem` invalidList
+    invalidList = ["", "exit", "quit", ":q"]
