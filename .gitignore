@@ -1,3 +1,4 @@
+# haskell stuff
 dist
 cabal-dev
 *.o
@@ -15,3 +16,11 @@ cabal.config
 *.prof
 *.aux
 *.hp
+
+# my scratchpad file
+scratchpad.hs
+
+# emacs temp files
+*~
+[#]*[#]
+.\#*
