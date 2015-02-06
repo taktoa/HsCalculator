@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 -- Main.hs
 -- Copyright 2015 Remy E. Goldschmidt <taktoa@gmail.com>
 -- This file is part of HsCalculator.
@@ -16,7 +17,9 @@
 
 module Main where
 
+--import           Control.Applicative ((*>), (<*), (<**>), (<*>))
 import           Control.Monad    (unless)
+import           Data.Functor     ((<$>))
 import           Data.Hashable    (hash)
 import           Data.Map.Strict  (Map, union)
 import qualified Data.Map.Strict  as M
@@ -24,6 +27,7 @@ import           Data.Text        (pack)
 import           System.IO        (hFlush, stdout)
 import           Text.Parsec
 import           Text.Parsec.Text (Parser)
+--import           Data.Ratio          ((%))
 
 newtype MName = MName Int
              deriving (Eq, Ord, Read, Show)
@@ -37,6 +41,7 @@ data Expr = ELam MName Expr
           | EApp Expr  Expr
           | ERef MName
           | ERat Rational
+          | ETF  Bool
           | ENeg Expr
           | EAdd Expr  Expr
           | ERcp Expr
@@ -48,11 +53,11 @@ munge = MName . hash
 
 step :: (Context, Expr) -> (Context, Expr)
 step (c, ERef n)                 = case M.lookup n c of
-                                     Just a  -> let (c', a') = step (c, a) in (c `union` c', a')
-                                     Nothing -> error $ "Referenced undefined variable: " ++ show n
+                                    Just a  -> let (c', a') = step (c, a) in (c `union` c', a')
+                                    Nothing -> error $ "Referenced undefined variable: " ++ show n
 step (c, ENeg (ERat a))          = (c, ERat (-a))
 step (c, EAdd (ERat a) (ERat b)) = (c, ERat (a + b))
-step (c, ERcp (ERat 0))          = error "Divide by zero"
+step (_, ERcp (ERat 0))          = error "Divide by zero"
 step (c, ERcp (ERat a))          = (c, ERat (recip a))
 step (c, EMul (ERat a) (ERat b)) = (c, ERat (a * b))
 step (c, EMul a b)               = step (c, EMul (snd $ step (c, a)) (snd $ step (c, b)))
@@ -64,10 +69,10 @@ step (c, e)                      = (c, e)
 
 eval' :: (Context, Expr) -> (Context, Expr)
 eval' i
-  | i == s      = i
-  | otherwise   = eval' s
-  where
-    s = step i
+ | i == s      = i
+ | otherwise   = eval' s
+ where
+   s = step i
 
 eval :: Expr -> Rational
 eval (ERat i) = i
@@ -75,23 +80,30 @@ eval e        = eval $ snd $ eval' (M.empty, e)
 
 intParse :: Parser Expr
 intParse = do
-  c <- many digit
-  return $ ERat $ fromIntegral (read c :: Integer)
+ c <- many digit
+ return $ ERat $ fromIntegral (read c :: Integer)
 
 ratParse :: Parser Expr
 ratParse = do
-  c <- many digit
-  char '%'
-  d <- many digit
-  return $ ERat $ read (c ++ "%" ++ d)
+ c <- many digit
+ char '%'
+ d <- many digit
+ return $ ERat $ read (c ++ "%" ++ d)
 
 data PFunc = PLam
-           | PMu
-           | PApp
-           | PNeg
-           | PAdd
-           | PMul
-           | PRcp
+          | PMu
+          | PApp
+          | PNeg
+          | PAdd
+          | PMul
+          | PRcp
+
+data EvalError = UndefinedVariableError String
+               | DivideByZeroError
+               deriving (Eq, Show, Read)
+
+varParse :: Parser Expr
+varParse = (ERef . munge) `fmap` many1 letter
 
 operators :: [(String, PFunc)]
 operators = [("-",      PNeg),
@@ -102,25 +114,24 @@ operators = [("-",      PNeg),
              ("mu",     PMu),
              ("lam",    PLam)]
 
-varParse :: Parser Expr
-varParse = (ERef . munge) `fmap` many1 letter
-
 funcParse :: Parser PFunc
 funcParse = choice $ map genOpP operators
-          where
-            genOpP (s, a) = string s >> return a
+  where
+    genOpP (s, a) = string s >> return a
+
+sexpParse :: Parser a -> Parser b -> Parser (a, [b])
+sexpParse p1 p2 = do
+  char '('
+  f <- p1
+  space >> spaces
+  as <- p2 `sepBy` (space >> spaces)
+  char ')'
+  return (f, as)
 
 exprParse :: Parser Expr
-exprParse = do
-  char '('
-  func <- funcParse
-  whitespace
-  args <- argParse `sepBy` whitespace
-  char ')'
-  return (toExpr func args)
+exprParse = uncurry toExpr <$> sexpParse funcParse argParse
   where
     argParse = choice [exprParse, varParse, try ratParse, intParse]
-    whitespace = many1 space
 
 toExpr :: PFunc -> [Expr] -> Expr
 toExpr PNeg [x]         = ENeg x
@@ -134,8 +145,8 @@ toExpr PMu  [ERef n, r] = EMu n r
 toExpr PApp [f, a]      = EApp f a
 toExpr PApp (f:a:as)    = toExpr PApp $ EApp f a : as
 
-testEval :: String -> Either ParseError Rational
-testEval = fmap eval . parse exprParse "stdin" . pack
+testEval :: String -> Either String Rational
+testEval = either (Left . show) (Right . eval) . parse exprParse "stdin" . pack
 
 main :: IO ()
 main = do
@@ -143,7 +154,7 @@ main = do
         putStr "==> "
         hFlush stdout
         r <- getLine
-        unless (invalid r) (print (testEval r) >> loop)
+        unless (invalid r) $ putStrLn (either id show $ testEval r) >> loop
   loop
   putStrLn "Goodbye!"
   where
