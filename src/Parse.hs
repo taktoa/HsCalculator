@@ -45,6 +45,7 @@ data PFunc = PLam
            | PAdd
            | PMul
            | PRcp
+           deriving (Eq, Show, Read)
 
 data EvalError = UndefinedVariableError String
                | DivideByZeroError
@@ -95,15 +96,6 @@ exprParse = uncurry toExpr <$> sexpParse funcParse argParse
     argParse = choice [try boolParse, exprParse, varParse, try ratParse, intParse]
 
 toExpr :: PFunc -> [Expr] -> Expr
-toExpr POr  [a, b]      = EIf a (ETF True) b
-toExpr PAnd [a, b]      = EIf a b (ETF False)
-toExpr PNot [a]         = EIf a (ETF False) (ETF True)
-toExpr PEQ  [a, b]      = toExpr PAnd [toExpr PLE [a, b], toExpr PNot [toExpr PLT [a, b]]]
-toExpr PLT  [a, b]      = toExpr PNot [toExpr PGE [a, b]]
-toExpr PGT  [a, b]      = toExpr PNot [toExpr PLE [a, b]]
-toExpr PIf  [b, t, f]   = EIf b t f
-toExpr PLE  [a, b]      = ELE a b
-toExpr PGE  [a, b]      = ELE b a
 toExpr PNeg [x]         = ENeg x
 toExpr PAdd [x]         = x
 toExpr PAdd (x:xs)      = EAdd x (toExpr PAdd xs)
@@ -114,3 +106,15 @@ toExpr PLam [ERef n, r] = ELam n r
 toExpr PMu  [ERef n, r] = EMu n r
 toExpr PApp [f, a]      = EApp f a
 toExpr PApp (f:a:as)    = toExpr PApp $ EApp f a : as
+toExpr f a              = desugar f a
+
+desugar :: PFunc -> [Expr] -> Expr
+desugar POr  [a, b]      = EIf a (ETF True) b
+desugar PAnd [a, b]      = EIf a b (ETF False)
+desugar PNot [a]         = EIf a (ETF False) (ETF True)
+desugar PEQ  [a, b]      = toExpr PAnd [toExpr PLE [a, b], toExpr PNot [toExpr PLT [a, b]]]
+desugar PLT  [a, b]      = toExpr PNot [toExpr PGE [a, b]]
+desugar PGT  [a, b]      = toExpr PNot [toExpr PLE [a, b]]
+desugar PIf  [b, t, f]   = EIf b t f
+desugar PLE  [a, b]      = ELE a b
+desugar PGE  [a, b]      = ELE b a
