@@ -17,33 +17,29 @@
 
 module Main where
 
-import           Control.Monad   (unless)
-import           Data.Map.Strict (empty)
-import           Data.Text       (pack)
+import           Control.Monad            (unless)
+import           Data.Map.Strict          (empty)
+import           Data.Text                (pack)
 import           Eval
 import           Parse
 import           PrettyPrint
-import           System.IO       (hFlush, stdout)
-import           Text.Parsec     (parse)
+import           System.Console.Haskeline
+import           Text.Parsec              (parse)
 
 testEval :: String -> String
 testEval = either show (cpPrint . eval' . (empty,)) . parse exprParse "stdin" . pack
 
--- testString :: String
--- testString = "(app (mu f (lam x (if (<= x 1) 1 (* x (app f (+ x (- 1))))))) 20)"
-
--- main :: IO ()
--- main = putStrLn $ either id show $ testEval testString
+testString :: String
+testString = "(app (mu f (lam x (if (<= x 1) 1 (* x (app f (+ x (- 1))))))) 20)"
 
 main :: IO ()
-main = do
-  let loop = do
-        putStr "==> "
-        hFlush stdout
-        r <- getLine
-        unless (invalid r) $ putStrLn (testEval r) >> loop
-  loop
-  putStrLn "Goodbye!"
+main = runInputT defaultSettings loop >> putStrLn "Goodbye!"
   where
-    invalid x = x `elem` invalidList
-    invalidList = ["", "exit", "quit", ":q"]
+    loop :: InputT IO ()
+    loop = do
+      minput <- getInputLine "==> "
+      case minput of
+       Nothing -> return ()
+       Just input -> unless (input `elem` exits) $ outputStrLn $ testEval input
+      unless (maybe False (`elem` exits) minput) loop
+    exits = [":q", "quit", "exit", "(quit)"]
