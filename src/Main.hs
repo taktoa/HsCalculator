@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 -- Main.hs
 -- Copyright 2015 Remy E. Goldschmidt <taktoa@gmail.com>
 -- This file is part of HsCalculator.
