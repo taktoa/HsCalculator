@@ -16,25 +16,30 @@
 
 module Parse where
 
---import           Control.Applicative ((*>), (<*), (<**>), (<*>))
-import           Data.Functor     ((<$), (<$>))
+import           Control.Applicative ((*>), (<*), (<**>), (<*>))
+import           Data.Functor        ((<$), (<$>))
 --import           Data.Hashable       (hash)
 import           Text.Parsec
-import           Text.Parsec.Text (Parser)
+import           Text.Parsec.Text    (Parser)
 --import           Data.Ratio          ((%))
 import           Expr
 
 munge :: String -> MName
 munge = MName
 
+sgnNumParse :: Parser String
+sgnNumParse = plus <|> minus <|> number
+  where plus   = char '+' *> number
+        minus  = (:) <$> char '-' <*> number
+        number = many1 digit
+
 intParse :: Parser Expr
-intParse = do
-  c <- many digit
-  return $ ERat $ fromIntegral (read c :: Integer)
+intParse = ERat . fromIntegral . rd <$> sgnNumParse
+  where rd = read :: String -> Integer
 
 ratParse :: Parser Expr
 ratParse = do
-  c <- many digit
+  c <- sgnNumParse
   char '%'
   d <- many digit
   return $ ERat $ read (c ++ "%" ++ d)
