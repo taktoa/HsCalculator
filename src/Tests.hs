@@ -27,7 +27,6 @@ import           Distribution.TestSuite.QuickCheck
 import           Eval
 import           Expr
 import           Parse
-import           PrettyPrint
 import           Test.QuickCheck
 import           Text.Parsec                       (ParseError, parse)
 
@@ -71,25 +70,45 @@ letter :: Gen Char
 letter = frequency alphaFreqList
 
 identifier :: Gen String
-identifier = liftM2 (:) letter $ resize 10 $ sized (`replicateM` letter)
+identifier = liftM2 (:) letter $ resize 1 $ sized (`replicateM` letter)
 
 instance Arbitrary MName where
   arbitrary = liftM MName identifier
 
+newtype BExpr = BExpr Expr deriving (Show, Eq)
+
+newtype AExpr = AExpr Expr deriving (Show, Eq)
+
+unAExpr :: AExpr -> Expr
+unAExpr (AExpr a) = a
+
+aexprTree :: (Ord a, Num a) => a -> Gen AExpr
+aexprTree 0 = AExpr <$> liftM  ERat arbitrary
+aexprTree n
+  | n > 0 = oneof
+            [ AExpr <$> liftM  ENeg subtree
+            , AExpr <$> liftM2 EAdd subtree subtree
+            , AExpr <$> liftM  ERcp subtree
+            , AExpr <$> liftM2 EMul subtree subtree
+            ]
+  where
+    subtree = unAExpr <$> aexprTree (n - 1)
+
+lexprTree :: (Ord a, Num a) => [(MName, Bool)] -> a -> Gen Expr
+lexprTree a 0 = ERef <$> elements (map fst $ filter snd a)
+lexprTree a n
+  | n > 0  = oneof [ liftM2 (uncurry ELam) vt
+                   , liftM2 (uncurry EMu) vt
+                   , liftM2 EApp t t ]
+  where
+    v = (\(j, k) -> (j, not k)) <$> elements a
+    t = lexprTree a (n - 1)
+
+instance Arbitrary AExpr where
+  arbitrary = sized aexprTree
+
 instance Arbitrary Expr where
-  arbitrary = oneof
-              [ liftM2 ELam arbitrary arbitrary
-              , liftM2 EMu  arbitrary arbitrary
-              , liftM2 EApp arbitrary arbitrary
-              , liftM  ERat arbitrary
-              , liftM  ETF  arbitrary
-              , liftM2 ELE  (ERat <$> arbitrary) (ERat <$> arbitrary)
-              , liftM3 EIf  (ETF  <$> arbitrary) arbitrary arbitrary
-              , liftM  ENeg (ERat <$> arbitrary)
-              , liftM2 EAdd (ERat <$> arbitrary) (ERat <$> arbitrary)
-              , liftM  ERcp (ERat <$> arbitrary)
-              , liftM2 EMul (ERat <$> arbitrary) (ERat <$> arbitrary)
-              ]
+  arbitrary = sized $ lexprTree (map (\x -> (MName x, False)) ["a", "b", "c"])
 
 -- Tests
 
@@ -120,8 +139,11 @@ propEvalAdd2 r1 r2 = propEvalAddN $ NonEmpty [r1, r2]
 propEvalStep :: Expr -> Property
 propEvalStep e = eval' ce === eval' (step ce) where ce = (empty, e)
 
-tests :: IO [Test]
-tests = return [ testGroup "Evaluator tests" propEvalGroup  ]
+propEvalArith :: AExpr -> Property
+propEvalArith (AExpr e) = case eval' (empty, e) of
+                           (c, ERat _) -> c === empty
+                           _           -> property False
+
 
 propEvalGroup :: [Test]
 propEvalGroup =
@@ -134,3 +156,6 @@ propEvalGroup =
     , testProperty "Factorial of a positive integer" propEvalFac
     , testProperty "Step idempotency on evaluated values" propEvalStep
     ]
+
+tests :: IO [Test]
+tests = return [ testGroup "Evaluator tests" propEvalGroup  ]

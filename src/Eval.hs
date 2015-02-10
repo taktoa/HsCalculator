@@ -25,9 +25,11 @@ step (c, ERef n)                       = case M.lookup n c of
                                           Just a  -> (c, a)
                                           Nothing -> error $ "Referenced undefined variable: " ++ show n
 step (c, ENeg (ERat i))                = (c, ERat (-i))
+step (c, ENeg a)                       = (c, ENeg (snd $ eval' (c, a)))
 step (c, EAdd (ERat a) (ERat b))       = (c, ERat (a + b))
 step (_, ERcp (ERat 0))                = error "Divide by zero"
 step (c, ERcp (ERat a))                = (c, ERat (recip a))
+step (c, ERcp a)                       = (c, ERcp (snd $ eval' (c, a)))
 step (c, EMul (ERat a) (ERat b))       = (c, ERat (a * b))
 step (c, EMul a b)                     = (c, EMul (snd $ eval' (c, a)) (snd $ eval' (c, b)))
 step (c, EAdd a b)                     = (c, EAdd (snd $ eval' (c, a)) (snd $ eval' (c, b)))
