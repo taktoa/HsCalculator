@@ -12,9 +12,9 @@ env:
 # - CABALVER=1.16 GHCVER=7.2.2
 # - CABALVER=1.16 GHCVER=7.4.2
 # - CABALVER=1.18 GHCVER=7.6.3
- - CABALVER=1.18 GHCVER=7.8.3
  - CABALVER=1.22 GHCVER=7.10.1
-# - CABALVER=head GHCVER=head
+ - CABALVER=head GHCVER=head
+ - HPVER=2014.2.0.0
  - HPVER=2013.2.0.0
 # - HPVER=2012.4.0.0
 # - HPVER=2012.2.0.0
@@ -67,6 +67,7 @@ install:
  - cabal --version
  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
  - travis_retry cabal update
+ - cabal sandbox init
  - cabal install --only-dependencies --enable-tests --enable-benchmarks
 
 # Here starts the actual work to be performed for the package under
