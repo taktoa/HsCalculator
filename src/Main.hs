@@ -17,16 +17,24 @@
 module Main where
 
 import           Control.Monad            (unless)
-import           Data.Map.Strict          (empty)
 import           Data.Text                (pack)
 import           Eval
+import           Expr
 import           Parse
 import           PrettyPrint
 import           System.Console.Haskeline
 import           Text.Parsec              (parse)
 
+loopStep :: Closure -> String
+loopStep e = cpPrint e ++ (if e' == e then "" else loopStep e')
+             where
+               e' = step e
+
 testEval :: String -> String
-testEval = either show (cpPrint . eval' . (empty,)) . parse exprParse "stdin" . pack
+testEval (':':'t':' ':rs) = case parse exprParse "stdin" $ pack rs of
+                             Right s -> loopStep $ return s
+                             Left e  -> "Parse error: " ++ show e
+testEval rs = either show (cpPrint . eval' . return) $ parse exprParse "stdin" $ pack rs
 
 testString :: String
 testString = "(app (mu f (lam x (if (<= x 1) 1 (* x (app f (+ x (- 1))))))) 20)"

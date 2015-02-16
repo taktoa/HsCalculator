@@ -20,7 +20,7 @@ import           Control.Monad                     (liftM, liftM2, replicateM)
 import           Data.Functor                      ((<$>))
 import           Data.Map.Strict                   (empty)
 import           Data.Ratio                        (denominator, numerator)
-import           Data.Text                         (pack)
+import           Data.Text                         (Text, pack, unpack)
 import           Debug.Trace                       (trace)
 import           Distribution.TestSuite
 import           Distribution.TestSuite.QuickCheck
@@ -69,11 +69,11 @@ alphaFreqList =
 letter :: Gen Char
 letter = frequency alphaFreqList
 
-identifier :: Gen String
-identifier = liftM2 (:) letter $ resize 1 $ sized (`replicateM` letter)
+identifier :: Gen Text
+identifier = pack <$> (liftM2 (:) letter $ resize 1 $ sized (`replicateM` letter))
 
-instance Arbitrary MName where
-  arbitrary = liftM MName identifier
+instance Arbitrary Name where
+  arbitrary = liftM Name identifier
 
 newtype BExpr = BExpr Expr deriving (Show, Eq)
 
@@ -99,8 +99,8 @@ aexprTree n
   where
     subtree = unAExpr <$> aexprTree (n - 1)
 
-varName :: Int -> Gen MName
-varName a = MName . (\m -> "x" ++ show m) <$> elements [0..a]
+varName :: Int -> Gen Name
+varName a = Name . pack . (\m -> "x" ++ show m) <$> elements [0..a]
 
 lexprTree' :: Int -> Int -> Int -> Gen LExpr
 lexprTree' a _ 0 = LExpr . ERef <$> varName a
@@ -192,7 +192,7 @@ genAppTerm n f i r = trace t $ LExpr <$> liftM2 EApp a1 a2
 --    | otherwise       = i
 
 genLamTerm :: Int -> Int -> Gen LExpr
-genLamTerm n f = LExpr . ELam (MName $ ('x':) $ show f) . unLExpr <$> gen (n - 1) (f + 1)
+genLamTerm n f = LExpr . ELam (Name $ pack $ ('x':) $ show f) . unLExpr <$> gen (n - 1) (f + 1)
 
 --genAppTerm
 
@@ -229,12 +229,12 @@ propEvalAdd2 r1 r2 = propEvalAddN $ NonEmpty [r1, r2]
 -- propEvalStep e = eval' ce === eval' (step ce) where ce = (empty, e)
 
 propEvalStep :: LExpr -> Property
-propEvalStep (LExpr e) = eval' ce === eval' (step ce) where ce = (empty, e)
+propEvalStep (LExpr e) = eval' ce === eval' (step ce) where ce = return e
 
 propEvalArith :: AExpr -> Property
-propEvalArith (AExpr e) = case eval' (empty, e) of
-                           (c, ERat _) -> c === empty
-                           _           -> property False
+propEvalArith (AExpr a) = case eval' $ return a of
+                           c@(Clsr _ _ i@(ERat _)) -> c === return i
+                           _                       -> property False
 
 
 propEvalGroup :: [Test]

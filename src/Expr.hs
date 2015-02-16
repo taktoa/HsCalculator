@@ -16,19 +16,28 @@
 
 module Expr where
 
-import           Data.Map.Strict (Map)
+import           Control.Applicative (Applicative (..))
+import           Control.Monad       (ap, liftM)
+import           Data.IntMap.Strict  (IntMap)
+import qualified Data.IntMap.Strict  as IM (empty, union)
+import           Data.Map.Strict     (Map, empty, union)
+import           Data.String         (IsString (..))
+import           Data.Text           (Text, pack)
 
-newtype MName = MName String
+newtype Name = Name Text
              deriving (Eq, Ord, Read, Show)
 
-type Name = String
+instance IsString Name where
+  fromString = Name . pack
 
-type Context = Map MName Expr
+type Env = Map Name Int
 
-data Expr = ELam MName Expr
-          | EMu  MName Expr
+type Store = (Int, IntMap Expr)
+
+data Expr = ELam Name  Expr
+          | EMu  Name  Expr
           | EApp Expr  Expr
-          | ERef MName
+          | ERef Name
           | ERat Rational
           | ETF  Bool
           | ELE  Expr  Expr
@@ -38,3 +47,23 @@ data Expr = ELam MName Expr
           | ERcp Expr
           | EMul Expr  Expr
             deriving (Eq, Show, Read)
+
+data GClosure e = Clsr Env Store e
+                deriving (Eq, Show, Read)
+
+type Closure = GClosure Expr
+type EClosure = GClosure ()
+
+instance Functor GClosure where
+    fmap = liftM
+
+instance Applicative GClosure where
+    pure  = return
+    (<*>) = ap
+
+instance Monad GClosure where
+  return  = Clsr empty (0, IM.empty)
+  a >>= f = Clsr (e' `union` e) (i' + i, IM.union s' s) x'
+    where
+      Clsr e  (i,  s)  x  = a
+      Clsr e' (i', s') x' = f x

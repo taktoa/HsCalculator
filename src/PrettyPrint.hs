@@ -16,17 +16,19 @@
 
 module PrettyPrint where
 
-import           Data.Map.Strict
-import           Data.Ratio      (denominator, numerator)
+import qualified Data.IntMap.Strict as IM
+import qualified Data.Map.Strict    as M
+import           Data.Ratio         (denominator, numerator)
+import           Data.Text          (unpack)
 import           Expr
 
 prettyPrint' :: String -> [Expr] -> String
 prettyPrint' s es = "(" ++ s ++ concatMap ((' ':) . prettyPrint) es ++ ")"
 
 prettyPrint :: Expr -> String
-prettyPrint (ELam n e)  = prettyPrint' "λ" [ERef n, e]
-prettyPrint (EMu n e)   = prettyPrint' "μ" [ERef n, e]
-prettyPrint (ERef n)    = case n of MName m -> m
+prettyPrint (ELam n e)  = prettyPrint' "lam" [ERef n, e]
+prettyPrint (EMu n e)   = prettyPrint' "mu" [ERef n, e]
+prettyPrint (ERef n)    = case n of Name m -> unpack m
 prettyPrint (ERat x)    = case denominator x of
                            1 -> show $ numerator x
                            _ -> show x
@@ -39,8 +41,14 @@ prettyPrint (ELE a b)   = prettyPrint' "<=" [a, b]
 prettyPrint (ERcp a)    = prettyPrint' "~" [a]
 prettyPrint (ENeg a)    = prettyPrint' "-" [a]
 
-contextPrint :: Context -> String
-contextPrint c = concatMap (\(a, b) -> prettyPrint (ERef a) ++ " ~> " ++ prettyPrint b ++ "\n") $ toList c
+mapPrint :: (a -> String) -> (b -> String) -> [(a, b)] -> String
+mapPrint f g = concatMap (\(a, b) -> f a ++ " ~> " ++ g b ++ "\n")
 
-cpPrint :: (Context, Expr) -> String
-cpPrint (c, e) = contextPrint c ++ "\n" ++ prettyPrint e ++ "\n ------------------ \n"
+envPrint :: Env -> String
+envPrint = mapPrint (\(Name n) -> unpack n) show . M.toList
+
+storePrint :: Store -> String
+storePrint = mapPrint show prettyPrint . IM.toList . snd
+
+cpPrint :: Closure -> String
+cpPrint (Clsr e s x) = envPrint e ++ "\n" ++ storePrint s ++ "\n" ++ prettyPrint x ++ "\n ------------------ \n"

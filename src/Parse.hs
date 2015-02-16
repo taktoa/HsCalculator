@@ -16,16 +16,15 @@
 
 module Parse where
 
-import           Control.Applicative ((*>), (<*), (<**>), (<*>))
+import           Control.Applicative ((*>), (<*>))
 import           Data.Functor        ((<$), (<$>))
---import           Data.Hashable       (hash)
+import           Data.Text           (pack)
+import           Expr
 import           Text.Parsec
 import           Text.Parsec.Text    (Parser)
---import           Data.Ratio          ((%))
-import           Expr
 
-munge :: String -> MName
-munge = MName
+munge :: String -> Name
+munge = Name . pack
 
 sgnNumParse :: Parser String
 sgnNumParse = plus <|> minus <|> number
@@ -139,3 +138,4 @@ desugar PGT  [a, b]      = toExpr PNot [toExpr PLE [a, b]]
 desugar PIf  [b, t, f]   = EIf b t f
 desugar PLE  [a, b]      = ELE a b
 desugar PGE  [a, b]      = ELE b a
+desugar f a              = toExpr f a

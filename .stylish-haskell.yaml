@@ -75,4 +75,5 @@ columns: 80
 language_extensions:
   - TupleSections
   - OverloadedStrings
+  - OverloadedLists
   - BangPatterns
